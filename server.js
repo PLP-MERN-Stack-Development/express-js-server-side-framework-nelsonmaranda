@@ -1,71 +1,106 @@
-// server.js - Starter Express server for Week 2 assignment
 
-// Import required modules
+// Load environment variables
+require('dotenv').config();
+
 const express = require('express');
 const bodyParser = require('body-parser');
-const { v4: uuidv4 } = require('uuid');
+const cors = require('cors');
 
-// Initialize Express app
+// Import configuration
+const config = require('./config');
+
+// Import middleware
+const {
+  loggerMiddleware,
+  jsonParserMiddleware,
+  errorHandlerMiddleware,
+  notFoundMiddleware
+} = require('./middleware');
+
+// Import routes
+const apiRoutes = require('./routes');
+
+// Create Express app
 const app = express();
-const PORT = process.env.PORT || 3000;
 
-// Middleware setup
-app.use(bodyParser.json());
+// Trust proxy (for production deployment)
+app.set('trust proxy', 1);
 
-// Sample in-memory products database
-let products = [
-  {
-    id: '1',
-    name: 'Laptop',
-    description: 'High-performance laptop with 16GB RAM',
-    price: 1200,
-    category: 'electronics',
-    inStock: true
-  },
-  {
-    id: '2',
-    name: 'Smartphone',
-    description: 'Latest model with 128GB storage',
-    price: 800,
-    category: 'electronics',
-    inStock: true
-  },
-  {
-    id: '3',
-    name: 'Coffee Maker',
-    description: 'Programmable coffee maker with timer',
-    price: 50,
-    category: 'kitchen',
-    inStock: false
-  }
-];
+// CORS configuration
+app.use(cors({
+  origin: config.corsOrigin,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']
+}));
 
-// Root route
+// Global middleware
+app.use(loggerMiddleware);
+app.use(bodyParser.json({ limit: '10mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
+app.use(jsonParserMiddleware);
+
+// API routes
+app.use('/api', apiRoutes);
+
+// Root endpoint
 app.get('/', (req, res) => {
-  res.send('Welcome to the Product API! Go to /api/products to see all products.');
+  res.json({
+    message: 'Hello World! Welcome to the Products API',
+    version: config.apiVersion,
+    timestamp: new Date().toISOString(),
+    environment: config.nodeEnv,
+    endpoints: {
+      api: '/api',
+      health: '/api/health',
+      docs: '/api/docs',
+      products: '/api/products'
+    }
+  });
 });
 
-// TODO: Implement the following routes:
-// GET /api/products - Get all products
-// GET /api/products/:id - Get a specific product
-// POST /api/products - Create a new product
-// PUT /api/products/:id - Update a product
-// DELETE /api/products/:id - Delete a product
+// 404 handler (must be after all routes)
+app.use(notFoundMiddleware);
 
-// Example route implementation for GET /api/products
-app.get('/api/products', (req, res) => {
-  res.json(products);
-});
+// Global error handler (must be last)
+app.use(errorHandlerMiddleware);
 
-// TODO: Implement custom middleware for:
-// - Request logging
-// - Authentication
-// - Error handling
-
-// Start the server
-app.listen(PORT, () => {
+// Start server
+const PORT = config.port;
+const server = app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
+  console.log(`API Documentation: http://localhost:${PORT}/api/docs`);
+  console.log(`Available API Keys: ${config.apiKeys.join(', ')}`);
+  console.log(`Environment: ${config.nodeEnv}`);
+  console.log(`Health Check: http://localhost:${PORT}/api/health`);
+  console.log('Use X-API-Key header for authentication on protected routes');
 });
 
-// Export the app for testing purposes
-module.exports = app; 
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received. Shutting down gracefully...');
+  server.close(() => {
+    console.log('Process terminated');
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received. Shutting down gracefully...');
+  server.close(() => {
+    console.log('Process terminated');
+  });
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  process.exit(1);
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
+});
+
+module.exports = app;
